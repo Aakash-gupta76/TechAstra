@@ -1,0 +1,6 @@
+{
+  "name": "TechAstra",
+  "description": "A modern digital resource platform for B.Tech students to access semester-wise PYQs, sessional papers, and technical study notes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
