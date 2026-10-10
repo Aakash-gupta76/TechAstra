@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">TechAstra</string>
+
+    <!-- Google AdMob Configuration -->
+    <!-- Your Real AdMob App ID configured in AndroidManifest.xml -->
+    <string name="admob_app_id">ca-app-pub-3637965377534592~3770229709</string>
+
+    <!-- Official Google Test Banner Ad Unit ID (Active for Development & Safe Testing) -->
+    <string name="admob_banner_ad_unit_id">ca-app-pub-3940256099942544/6300978111</string>
+
+    <!-- Your Real Production Banner Ad Unit ID (Configured separately for final publishing release) -->
+    <string name="admob_production_banner_ad_unit_id">ca-app-pub-3637965377534592/8745178611</string>
+
+    <!-- Official Google Test Interstitial Ad Unit ID -->
+    <string name="admob_interstitial_ad_unit_id">ca-app-pub-3940256099942544/1033173712</string>
 </resources>

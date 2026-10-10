@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import com.example.ui.components.BannerAdView
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -426,6 +427,12 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+
+            // Google AdMob Test Banner Ad
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                BannerAdView()
             }
 
             // Popular Subjects Chips

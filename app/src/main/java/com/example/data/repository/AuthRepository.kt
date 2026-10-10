@@ -86,7 +86,7 @@ class AuthRepository(
         name: String,
         email: String,
         password: String,
-        branch: String = "Computer Science & Engineering",
+        branch: String = "",
         semester: Int = 5
     ): Result<FirebaseUser> {
         val currentAuth = auth ?: return Result.failure(Exception("Firebase Auth not initialized"))
@@ -155,7 +155,7 @@ class AuthRepository(
                     name = user.displayName?.ifBlank { null } ?: "Student",
                     email = user.email ?: "",
                     role = "student",
-                    branch = "Computer Science & Engineering",
+                    branch = "",
                     semester = 5
                 )
                 _userProfile.value = immediateProfile
@@ -260,13 +260,21 @@ class AuthRepository(
                     return@addSnapshotListener
                 }
 
+                val rawBranch = snapshot.getString("branch") ?: ""
+                val cleanBranch = if (rawBranch.equals("Computer Science & Engineering", ignoreCase = true) ||
+                    rawBranch.equals("Computer Science", ignoreCase = true)) {
+                    ""
+                } else {
+                    rawBranch
+                }
+
                 val profile = UserProfile(
                     uid = snapshot.getString("uid") ?: uid,
                     name = snapshot.getString("name")?.ifBlank { null }
                         ?: auth?.currentUser?.displayName?.ifBlank { null } ?: "Student",
                     email = snapshot.getString("email") ?: auth?.currentUser?.email ?: "",
                     role = snapshot.getString("role") ?: "student",
-                    branch = snapshot.getString("branch") ?: "Computer Science & Engineering",
+                    branch = cleanBranch,
                     semester = (snapshot.getLong("semester") ?: 5L).toInt(),
                     college = snapshot.getString("college") ?: "Techno Institute of Technology"
                 )

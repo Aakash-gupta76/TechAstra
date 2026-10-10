@@ -64,7 +64,7 @@ data class UserProfile(
     val name: String = "Student",
     val email: String = "",
     val role: String = "student", // "student" or "admin"
-    val branch: String = "Computer Science & Engineering",
+    val branch: String = "",
     val semester: Int = 5,
     val college: String = "Techno Institute of Technology"
 ) {

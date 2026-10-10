@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import com.example.ui.components.BannerAdView
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -300,6 +301,12 @@ fun ResourcesScreen(
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Google AdMob Test Banner Placement
+            item {
+                BannerAdView()
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             // Tab Content

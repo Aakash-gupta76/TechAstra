@@ -29,6 +29,10 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -333,6 +337,7 @@ fun ResourceDetailsScreen(
                     .border(1.dp, TechCardBorder, RoundedCornerShape(16.dp)),
                 color = TechSurface
             ) {
+                val context = LocalContext.current
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(
                         text = "Overview & Syllabus Coverage",
@@ -347,6 +352,41 @@ fun ResourceDetailsScreen(
                         color = TechTextSecondary,
                         lineHeight = 20.sp
                     )
+
+                    if (!resource.fileUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resource.fileUrl.trim())).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Unable to open external link")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TechAstraGold)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = null,
+                                tint = TechAstraGold,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open in Google Drive / Browser",
+                                color = TechAstraGold,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                 }
             }
 

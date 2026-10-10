@@ -130,7 +130,7 @@ class TechAstraViewModel : ViewModel() {
         name: String,
         email: String,
         password: String,
-        branch: String = "Computer Science & Engineering",
+        branch: String = "",
         semester: Int = 5,
         onSuccess: () -> Unit,
         onError: (String) -> Unit

@@ -1,6 +1,18 @@
 package com.example.ui.screens.pdf
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,27 +28,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -53,15 +63,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.model.DownloadItem
 import com.example.data.model.DownloadStatus
 import com.example.data.model.ResourceItem
@@ -77,6 +87,49 @@ import com.example.ui.theme.TechTextPrimary
 import com.example.ui.theme.TechTextSecondary
 import kotlinx.coroutines.launch
 
+/**
+ * Normalizes Google Drive and remote PDF URLs so they can be viewed smoothly.
+ * Supports:
+ * - https://drive.google.com/file/d/ID/view
+ * - https://drive.google.com/file/d/ID/preview
+ * - https://drive.google.com/open?id=ID
+ * - https://drive.google.com/uc?id=ID
+ * - Raw PDF URLs using Google Docs Viewer
+ */
+fun resolvePreviewUrl(rawUrl: String?): String? {
+    if (rawUrl.isNullOrBlank()) return null
+    val trimmed = rawUrl.trim()
+
+    // Match Google Drive file ID
+    val fileIdRegex = Regex("drive\\.google\\.com\\/(?:file\\/d\\/|open\\?id=|uc\\?id=)([a-zA-Z0-9_-]+)")
+    val match = fileIdRegex.find(trimmed)
+    if (match != null) {
+        val fileId = match.groupValues[1]
+        // Google Drive preview URL embeds cleanly in mobile WebViews
+        return "https://drive.google.com/file/d/$fileId/preview"
+    }
+
+    // Direct PDF link from cloud storage or other host
+    if (trimmed.endsWith(".pdf", ignoreCase = true) || trimmed.contains(".pdf?", ignoreCase = true)) {
+        return "https://docs.google.com/gview?embedded=true&url=" + Uri.encode(trimmed)
+    }
+
+    return trimmed
+}
+
+fun openInExternalBrowser(context: Context, rawUrl: String?) {
+    if (rawUrl.isNullOrBlank()) return
+    try {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl.trim())).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        // Fallback if no specific browser handler
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PdfViewerScreen(
     resource: ResourceItem,
@@ -84,12 +137,19 @@ fun PdfViewerScreen(
     onBack: () -> Unit,
     onDownload: () -> Unit
 ) {
-    var currentPage by remember { mutableIntStateOf(1) }
-    var zoomScale by remember { mutableFloatStateOf(1.0f) }
-    var showMenu by remember { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var showMenu by remember { mutableStateOf(false) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var loadProgress by remember { mutableIntStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    val rawUrl = resource.fileUrl?.takeIf { it.isNotBlank() }
+    val previewUrl = remember(rawUrl) { resolvePreviewUrl(rawUrl) }
 
     Scaffold(
         containerColor = TechBackground,
@@ -102,97 +162,136 @@ fun PdfViewerScreen(
                 color = TechSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, TechCardBorder)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.testTag("pdf_back_button")
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = TechTextPrimary
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        Column {
-                            Text(
-                                text = resource.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = TechTextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${resource.fileSize} • Page $currentPage of ${resource.pageCount}",
-                                fontSize = 11.sp,
-                                color = TechAstraGold
-                            )
-                        }
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Download Icon
-                        IconButton(
-                            onClick = {
-                                onDownload()
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Downloading ${resource.title}...")
-                                }
-                            },
-                            modifier = Modifier.testTag("pdf_top_download")
-                        ) {
-                            Icon(
-                                imageVector = if (downloadItem?.status == DownloadStatus.COMPLETED) Icons.Default.CheckCircle else Icons.Default.Download,
-                                contentDescription = "Download",
-                                tint = if (downloadItem?.status == DownloadStatus.COMPLETED) AccentGreen else TechAstraGold
-                            )
-                        }
-
-                        // More Menu
-                        Box {
-                            IconButton(onClick = { showMenu = true }) {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier.testTag("pdf_back_button")
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
                                     tint = TechTextPrimary
                                 )
                             }
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false },
-                                modifier = Modifier.background(TechSurface)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Reset Zoom (100%)", color = TechTextPrimary) },
-                                    onClick = {
-                                        zoomScale = 1.0f
-                                        showMenu = false
-                                    }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Column {
+                                Text(
+                                    text = resource.title,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = TechTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Print / Export PDF", color = TechTextPrimary) },
-                                    onClick = {
-                                        showMenu = false
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Export prepared for printing.")
-                                        }
-                                    }
+                                Text(
+                                    text = "${resource.subject} • ${resource.fileSize}",
+                                    fontSize = 11.sp,
+                                    color = TechAstraGold
                                 )
                             }
                         }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Open in Browser / Drive button
+                            if (!rawUrl.isNullOrBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        openInExternalBrowser(context, rawUrl)
+                                    },
+                                    modifier = Modifier.testTag("pdf_open_drive_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                        contentDescription = "Open in Drive / Browser",
+                                        tint = TechAstraGold,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            // Download Icon
+                            IconButton(
+                                onClick = {
+                                    onDownload()
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Downloading ${resource.title}...")
+                                    }
+                                },
+                                modifier = Modifier.testTag("pdf_top_download")
+                            ) {
+                                Icon(
+                                    imageVector = if (downloadItem?.status == DownloadStatus.COMPLETED) Icons.Default.CheckCircle else Icons.Default.Download,
+                                    contentDescription = "Download",
+                                    tint = if (downloadItem?.status == DownloadStatus.COMPLETED) AccentGreen else TechAstraGold
+                                )
+                            }
+
+                            // More Menu
+                            Box {
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = TechTextPrimary
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false },
+                                    modifier = Modifier.background(TechSurface)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Refresh Document", color = TechTextPrimary) },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, tint = TechTextPrimary)
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            isError = false
+                                            isLoading = true
+                                            webViewInstance?.reload()
+                                        }
+                                    )
+                                    if (!rawUrl.isNullOrBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Open in Google Drive / Browser", color = TechTextPrimary) },
+                                            leadingIcon = {
+                                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TechAstraGold)
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                openInExternalBrowser(context, rawUrl)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Progress indicator below top bar
+                    if (isLoading && previewUrl != null) {
+                        LinearProgressIndicator(
+                            progress = { loadProgress / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp),
+                            color = TechAstraGold,
+                            trackColor = TechSurfaceVariant
+                        )
                     }
                 }
             }
@@ -205,62 +304,39 @@ fun PdfViewerScreen(
                 color = TechSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, TechCardBorder)
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Page navigation bar
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Prev Page
-                        IconButton(
-                            onClick = { if (currentPage > 1) currentPage-- },
-                            enabled = currentPage > 1,
+                    // Open in Google Drive / Browser action
+                    if (!rawUrl.isNullOrBlank()) {
+                        OutlinedButton(
+                            onClick = { openInExternalBrowser(context, rawUrl) },
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(TechSurfaceVariant)
-                                .testTag("pdf_prev_page")
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("pdf_bottom_open_drive"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TechAstraGold)
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Previous Page",
-                                tint = if (currentPage > 1) TechTextPrimary else TechTextMuted,
-                                modifier = Modifier.size(16.dp)
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = null,
+                                tint = TechAstraGold,
+                                modifier = Modifier.size(18.dp)
                             )
-                        }
-
-                        Text(
-                            text = "$currentPage / ${resource.pageCount}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TechTextPrimary
-                        )
-
-                        // Next Page
-                        IconButton(
-                            onClick = { if (currentPage < resource.pageCount) currentPage++ },
-                            enabled = currentPage < resource.pageCount,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(TechSurfaceVariant)
-                                .testTag("pdf_next_page")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Next Page",
-                                tint = if (currentPage < resource.pageCount) TechTextPrimary else TechTextMuted,
-                                modifier = Modifier.size(16.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Open in Drive",
+                                color = TechAstraGold,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Download Action button
                     Button(
@@ -271,7 +347,7 @@ fun PdfViewerScreen(
                             }
                         },
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1.2f)
                             .height(48.dp)
                             .testTag("pdf_bottom_download_button"),
                         shape = RoundedCornerShape(12.dp),
@@ -283,23 +359,23 @@ fun PdfViewerScreen(
                         when (downloadItem?.status) {
                             DownloadStatus.COMPLETED -> {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.Black)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Downloaded to Device ✓", fontWeight = FontWeight.Bold, color = Color.Black)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Saved to Device ✓", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 13.sp)
                             }
                             DownloadStatus.DOWNLOADING -> {
                                 CircularProgressIndicator(
                                     progress = { downloadItem.progress },
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(18.dp),
                                     color = Color.Black,
-                                    strokeWidth = 2.5.dp
+                                    strokeWidth = 2.dp
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Downloading ${(downloadItem.progress * 100).toInt()}%...", fontWeight = FontWeight.Bold, color = Color.Black)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Downloading ${(downloadItem.progress * 100).toInt()}%...", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 13.sp)
                             }
                             else -> {
                                 Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Download PDF (${resource.fileSize})", fontWeight = FontWeight.Bold, color = Color.Black)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Download PDF", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 13.sp)
                             }
                         }
                     }
@@ -311,173 +387,235 @@ fun PdfViewerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .background(TechBackground)
         ) {
-            // Main Document Page View
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // PDF Document Page Canvas
-                Surface(
+            if (previewUrl == null) {
+                // No URL attached to this resource yet
+                NoPdfUrlView(
+                    resource = resource,
+                    onOpenBrowser = {
+                        if (!rawUrl.isNullOrBlank()) openInExternalBrowser(context, rawUrl)
+                    }
+                )
+            } else {
+                // Interactive WebView rendering the Google Drive / PDF viewer
+                AndroidView(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .scale(zoomScale)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp)),
-                    color = Color(0xFFFDFDFD), // Clean white paper
-                    tonalElevation = 6.dp
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp)
-                    ) {
-                        // Page Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "TECHO-ASTRA B.TECH REPOSITORY",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFF64748B),
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = "P. $currentPage",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF64748B)
-                            )
+                        .fillMaxSize()
+                        .testTag("pdf_webview"),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                loadWithOverviewMode = true
+                                useWideViewPort = true
+                                builtInZoomControls = true
+                                displayZoomControls = false
+                                cacheMode = WebSettings.LOAD_DEFAULT
+                                allowFileAccess = true
+                                mediaPlaybackRequiresUserGesture = false
+                                userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                            }
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    isLoading = false
+                                    isError = false
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame == true) {
+                                        isLoading = false
+                                        isError = true
+                                        errorMessage = error?.description?.toString() ?: "Failed to connect"
+                                    }
+                                }
+                            }
+
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    super.onProgressChanged(view, newProgress)
+                                    loadProgress = newProgress
+                                    if (newProgress >= 90) {
+                                        isLoading = false
+                                    }
+                                }
+                            }
+
+                            loadUrl(previewUrl)
+                            webViewInstance = this
                         }
+                    },
+                    update = { view ->
+                        webViewInstance = view
+                    }
+                )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            color = Color(0xFFCBD5E1)
-                        )
-
-                        // Document Title
-                        Text(
-                            text = resource.title,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A),
-                            lineHeight = 24.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = "Subject: ${resource.subject} • ${resource.examType} (${resource.year})",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF475569)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Page content mock
-                        Text(
-                            text = if (currentPage == 1) resource.samplePreview else """
-# Section $currentPage: Core Analytical Problems
-
-Q1. Discuss the worst-case, best-case, and average-case analysis for the primary algorithms covered in this module.
-Q2. Derive the closed-form recurrence relation using Master's Method and substitution.
-Q3. Outline the practical tradeoffs when deploying on distributed high-concurrency systems.
-
-```kotlin
-// Example Implementation
-fun analyzeComplexity(n: Int): Long {
-    var count = 0L
-    for (i in 0 until n) {
-        for (j in i until n) {
-            count += (i * j)
-        }
-    }
-    return count
-}
-```
-
-Key Formulae:
-- Sum(i=1 to n) i = n(n+1)/2
-- T(n) = 2T(n/2) + O(n) => O(n log n)
-                            """.trimIndent(),
-                            fontSize = 13.sp,
-                            color = Color(0xFF1E293B),
-                            lineHeight = 20.sp,
-                            fontFamily = FontFamily.SansSerif
-                        )
-
-                        Spacer(modifier = Modifier.height(30.dp))
-
-                        // Document Stamp / Watermark
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFF1F5F9))
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
+                // Error State overlay with fallback button
+                if (isError) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(TechBackground.copy(alpha = 0.95f))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(AccentRed.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = AccentRed,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
                             Text(
-                                text = "Verified Study Notes • TechAstra Academic Network",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF64748B)
+                                text = "Unable to load embedded preview",
+                                color = TechTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                textAlign = TextAlign.Center
                             )
+
+                            Text(
+                                text = "Google Drive permissions might require opening in browser, or internet is slow.",
+                                color = TechTextSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isError = false
+                                        isLoading = true
+                                        webViewInstance?.reload()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, TechCardBorder)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = TechTextPrimary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Retry", color = TechTextPrimary)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        openInExternalBrowser(context, rawUrl)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = TechAstraGold,
+                                        contentColor = Color.Black
+                                    )
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Open in Google Drive", fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            // Floating Zoom Controls (+ / -)
-            Surface(
+@Composable
+private fun NoPdfUrlView(
+    resource: ResourceItem,
+    onOpenBrowser: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, TechCardBorder, RoundedCornerShape(16.dp)),
+            color = TechSurface
+        ) {
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(1.dp, TechCardBorder, RoundedCornerShape(20.dp)),
-                color = TechSurface,
-                tonalElevation = 6.dp
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(TechAstraGold.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    IconButton(
-                        onClick = { if (zoomScale > 0.8f) zoomScale -= 0.1f },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = "Zoom Out",
-                            tint = TechTextPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Text(
-                        text = "${(zoomScale * 100).toInt()}%",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TechAstraGold,
-                        modifier = Modifier.padding(horizontal = 4.dp)
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = TechAstraGold,
+                        modifier = Modifier.size(32.dp)
                     )
+                }
 
-                    IconButton(
-                        onClick = { if (zoomScale < 1.4f) zoomScale += 0.1f },
-                        modifier = Modifier.size(36.dp)
+                Text(
+                    text = resource.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = TechTextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "Subject: ${resource.subject} • ${resource.examType}",
+                    fontSize = 13.sp,
+                    color = TechTextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "This resource does not have an attached PDF URL yet. Please add the Google Drive or PDF link in the Admin Web Panel to view it here.",
+                    fontSize = 12.sp,
+                    color = TechTextMuted,
+                    textAlign = TextAlign.Center
+                )
+
+                if (!resource.description.isNullOrBlank()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = TechSurfaceVariant,
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Zoom In",
-                            tint = TechTextPrimary,
-                            modifier = Modifier.size(18.dp)
+                        Text(
+                            text = resource.description,
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 12.sp,
+                            color = TechTextSecondary
                         )
                     }
                 }

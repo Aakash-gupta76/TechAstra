@@ -1,5 +1,6 @@
 package com.example.ui.screens.auth
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -86,7 +88,6 @@ fun LoginScreen(
     var generalError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var isGoogleLoading by remember { mutableStateOf(false) }
-    var showGoogleHelpDialog by remember { mutableStateOf(false) }
 
     var showForgotPasswordDialog by remember { mutableStateOf(false) }
     var forgotEmail by remember { mutableStateOf("") }
@@ -386,17 +387,29 @@ fun LoginScreen(
                 enabled = !isGoogleLoading && !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(52.dp)
                     .testTag("google_login_button"),
                 shape = RoundedCornerShape(14.dp),
-                border = ButtonDefaults.outlinedButtonBorder(enabled = !isGoogleLoading && !isLoading).copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(TechCardBorder)
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color(0xFF131D31),
+                    contentColor = Color.White
+                ),
+                border = BorderStroke(
+                    1.5.dp,
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF4285F4), // Google Blue
+                            Color(0xFFEA4335), // Google Red
+                            Color(0xFFFBBC05), // Google Yellow
+                            Color(0xFF34A853)  // Google Green
+                        )
+                    )
                 )
             ) {
                 if (isGoogleLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = TechAstraGold,
+                        color = Color(0xFF4285F4),
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -404,7 +417,7 @@ fun LoginScreen(
                         text = "Google Sign-In connecting...",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        color = TechTextPrimary
+                        color = Color.White
                     )
                 } else {
                     Row(
@@ -413,42 +426,30 @@ fun LoginScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(26.dp)
                                 .clip(CircleShape)
-                                .background(TechSurfaceVariant),
+                                .background(Color.White),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "G",
                                 fontWeight = FontWeight.Black,
-                                fontSize = 14.sp,
-                                color = TechAstraGold
+                                fontSize = 15.sp,
+                                color = Color(0xFF4285F4)
                             )
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = "Login with Google",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = TechTextPrimary
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
                         )
                     }
                 }
             }
 
-            // Google Setup Info link
-            TextButton(
-                onClick = { showGoogleHelpDialog = true },
-                modifier = Modifier.padding(top = 2.dp)
-            ) {
-                Text(
-                    text = "⚙️ Google Login problem? Check SHA-1 setup",
-                    fontSize = 12.sp,
-                    color = TechTextMuted
-                )
-            }
-
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Don't have an account? Sign Up
             Row(
@@ -553,109 +554,6 @@ fun LoginScreen(
             dismissButton = {
                 TextButton(onClick = { showForgotPasswordDialog = false }) {
                     Text("Close", color = TechTextPrimary)
-                }
-            },
-            containerColor = TechSurface
-        )
-    }
-
-    // Google Sign-In Setup & Info Dialog
-    if (showGoogleHelpDialog) {
-        AlertDialog(
-            onDismissRequest = { showGoogleHelpDialog = false },
-            title = {
-                Text(
-                    text = "Google Sign-In Setup & Troubleshooting",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TechTextPrimary
-                )
-            },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        text = "Agar 'Login with Google' kaam nahi kar raha hai to uski mukhya wajah ye hain:",
-                        fontSize = 13.sp,
-                        color = TechTextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Surface(
-                        color = TechSurfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                text = "1. SHA-1 Fingerprint (MANDATORY):",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TechAstraGold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Firebase Console me is app ka SHA-1 add karna zaroori hai:\nPackage: com.aistudio.techastra.bkpyqs\nSHA-1:\n9D:35:F2:9E:7F:EA:5E:02:7D:BE:E4:1F:D6:9C:C1:D8:06:D9:53:34",
-                                fontSize = 11.sp,
-                                color = TechTextPrimary,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Surface(
-                        color = TechSurfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                text = "2. Device me Google Account:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TechAstraGold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Emulator ya Phone ki Settings me kam se kam ek Google account logged in hona chahiye.",
-                                fontSize = 12.sp,
-                                color = TechTextSecondary
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Surface(
-                        color = TechAstraGold.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, TechAstraGold.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                text = "💡 Sabse Simple Tarika:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TechAstraGold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Aap direct 'Sign Up' karke apna Email & Password se account create karein. Email & Password 100% chalega bina kisi SHA-1 ke!",
-                                fontSize = 12.sp,
-                                color = TechTextPrimary
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showGoogleHelpDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = TechAstraGold)
-                ) {
-                    Text("Theek Hai", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = TechSurface

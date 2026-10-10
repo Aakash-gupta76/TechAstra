@@ -1,5 +1,6 @@
 package com.example.ui.screens.profile
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,8 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,10 +57,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.admob.AdMobManager
 import com.example.data.model.UserProfile
 import com.example.ui.components.ConfirmationDialog
 import com.example.ui.theme.AccentCyan
@@ -87,6 +93,7 @@ fun ProfileScreen(
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(true) }
+    val context = LocalContext.current
 
     val displayName = remember(userProfile.name) {
         userProfile.name.trim().ifBlank { "Student" }
@@ -170,11 +177,18 @@ fun ProfileScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Text(
-                            text = "${userProfile.branch} • Sem ${userProfile.semester}",
-                            fontSize = 12.sp,
-                            color = TechAstraGold
-                        )
+                        val cleanBranch = userProfile.branch.trim().let {
+                            if (it.equals("Computer Science & Engineering", ignoreCase = true) ||
+                                it.equals("Computer Science", ignoreCase = true)
+                            ) "" else it
+                        }
+                        if (cleanBranch.isNotBlank()) {
+                            Text(
+                                text = cleanBranch,
+                                fontSize = 12.sp,
+                                color = TechAstraGold
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(14.dp))
 
@@ -356,6 +370,16 @@ fun ProfileScreen(
                         )
                         HorizontalDivider(color = TechCardBorder)
                         ProfileMenuItem(
+                            icon = Icons.Default.Security,
+                            title = "Ad Privacy & Consent Settings",
+                            onClick = {
+                                (context as? Activity)?.let { act ->
+                                    AdMobManager.showPrivacyOptionsForm(act)
+                                }
+                            }
+                        )
+                        HorizontalDivider(color = TechCardBorder)
+                        ProfileMenuItem(
                             icon = Icons.Default.HelpOutline,
                             title = "Help & Support",
                             onClick = { showHelpDialog = true }
@@ -402,9 +426,15 @@ fun ProfileScreen(
 
     // Edit Profile Dialog
     if (showEditProfileDialog) {
+        val cleanInitialBranch = remember(userProfile.branch) {
+            val b = userProfile.branch.trim()
+            if (b.equals("Computer Science & Engineering", ignoreCase = true) ||
+                b.equals("Computer Science", ignoreCase = true)
+            ) "" else b
+        }
         var editName by remember { mutableStateOf(userProfile.name) }
         var editEmail by remember { mutableStateOf(userProfile.email) }
-        var editBranch by remember { mutableStateOf(userProfile.branch) }
+        var editBranch by remember { mutableStateOf(cleanInitialBranch) }
         var editSemester by remember { mutableStateOf(userProfile.semester.toString()) }
 
         AlertDialog(
@@ -439,6 +469,7 @@ fun ProfileScreen(
                         value = editBranch,
                         onValueChange = { editBranch = it },
                         label = { Text("Engineering Branch") },
+                        placeholder = { Text("e.g. CSE, IT, ME, ECE (Optional)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -526,13 +557,34 @@ fun ProfileScreen(
     if (showPrivacyDialog) {
         AlertDialog(
             onDismissRequest = { showPrivacyDialog = false },
-            title = { Text("Privacy & Security", fontWeight = FontWeight.Bold, color = TechTextPrimary) },
+            title = { Text("Privacy Policy & Advertising", fontWeight = FontWeight.Bold, color = TechTextPrimary) },
             text = {
-                Text(
-                    text = "All notes, PYQs, and educational assets provided on TechAstra are freely available for academic study and learning. Student profile information is stored privately on your device.",
-                    fontSize = 13.sp,
-                    color = TechTextSecondary
-                )
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "TechAstra is dedicated to transparency and student privacy.",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TechAstraGold
+                    )
+                    Text(
+                        text = "1. Educational Materials: All lecture notes, university PYQs, syllabus guides, and reference documents are freely provided for personal and non-commercial academic study.",
+                        fontSize = 12.sp,
+                        color = TechTextSecondary
+                    )
+                    Text(
+                        text = "2. Google AdMob Advertising: To support cloud infrastructure, database hosting, and development costs without charging students, this app displays advertisements using Google AdMob (Google Mobile Ads SDK). Google and certified third-party ad partners may collect and use identifiers (such as Android Advertising ID), cookies, and diagnostic app metrics to deliver relevant advertisements and prevent invalid click fraud in accordance with Google Play Developer policies.",
+                        fontSize = 12.sp,
+                        color = TechTextSecondary
+                    )
+                    Text(
+                        text = "3. Consent & Data Management: Users subject to GDPR / EEA / UK / US privacy regulations can view, adjust, or revoke their advertising consent at any time using the 'Ad Privacy & Consent Settings' option in the Profile menu.",
+                        fontSize = 12.sp,
+                        color = TechTextSecondary
+                    )
+                }
             },
             confirmButton = {
                 Button(
